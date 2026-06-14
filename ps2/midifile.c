@@ -480,8 +480,15 @@ static boolean ReadTrack(midi_track_t *track, FILE *stream)
     {
         // Resize the track slightly larger to hold another event:
 
-        new_events = I_Realloc(track->events, 
+        new_events = I_Realloc(track->events,
                              sizeof(midi_event_t) * (track->num_events + 1));
+        if (new_events == NULL)
+        {
+            // Out of malloc heap. Bail instead of writing midi_event_t's through
+            // a NULL events[] (near-NULL low RAM -> TLB-miss hard crash on real
+            // EE hardware; PCSX2 maps low RAM and silently limps on).
+            return false;
+        }
         track->events = new_events;
 
         // Read the next event:

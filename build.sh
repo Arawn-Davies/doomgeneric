@@ -174,6 +174,17 @@ case "${1:-}" in
     sync_elf
     exit 0
     ;;
+  embedgs|gshw)
+    # SINGLE-FILE quick test: gsKit hi-res renderer + embedded shareware DOOM1.WAD.
+    # One ~12 MB ELF that boots straight into Doom with no separate WAD -- handy
+    # for FMCB/USB ("just run this elf"). Output: bin/ps2oom.elf. Clean first --
+    # make doesn't track the CFLAGS change, so a stale build/ would mis-link.
+    shift
+    docker run "${common[@]}" "${IMAGE}" sh -c \
+      'make clean >/dev/null && make GSKIT_VIDEO=1 GS480P=1 HIRES=1 EMBED_WAD=1 BOOT_STRAIGHT=1 '"$*"
+    sync_elf
+    exit 0
+    ;;
   fastiso|gsiso)
     # FAST ITERATION disc: SDL2 launcher + gsKit hi-res only (2 compiles, small
     # pack) for testing the hi-res build. Packs DOOM.WAD + SIGIL.wad so the 5th

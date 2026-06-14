@@ -74,13 +74,66 @@ void PS2Pad_Init(void)
     if (g_inited)
         return;
 
-    // SIO2 + pad managers (harmless if already loaded by something else).
-    SifLoadModule("rom0:SIO2MAN", 0, NULL);
-    SifLoadModule("rom0:PADMAN", 0, NULL);
-
-    padInit(0);
+    // The pad stack (sio2man + mtap + padman + padInit) is brought up EARLY in
+    // main() by PS2_BringUpDrivers -- crucially BEFORE the USB stack -- so libpad's
+    // config handshake completes instead of wedging at PAD_STATE_EXECCMD. The
+    // joystick driver inits the pad but does NOT open the port, so we open ours
+    // here (once). The wait-for-stable loops live in the menu (pad_wait_ready) and
+    // PS2Pad_Poll. Never close+reopen -- that wedges padman.
     padPortOpen(0, 0, g_padBuf);
+
     g_inited = 1;
+}
+
+// fileXio file-write (manual decl; newlib fopen/POSIX can't reach mass:). The pad
+// probe dumps its result to a file on the USB stick because the GS text console is
+// proving unreliable here (it swallows per-line output) -- read it on a PC.
+extern int fileXioOpen(const char *name, int flags);
+extern int fileXioWrite(int fd, const void *buf, int size);
+extern int fileXioClose(int fd);
+
+// TEMP diagnostic: poll the pad for ~9 s, then write ONE summary line to <logpath>
+// on the USB stick (and to the GS console, best effort) and HALT. Press buttons
+// during the poll. reached_stable=1 => libpad saw the controller; saw_press=1 =>
+// a button registered. Removed once the pad works on USB boot.
+void PS2Pad_Probe(const char *logpath)
+{
+    struct padButtonStatus btn;
+    char     buf[160];
+    int      fd, k, s, r, len;
+    int      reached_stable = 0, saw_press = 0, last_state = -1;
+    unsigned last_btns = 0xFFFF;
+
+    PS2Pad_Init();
+    for (k = 0; k < 300; k++)
+    {
+        volatile int d;
+        s = padGetState(0, 0);
+        if (s == PAD_STATE_STABLE)
+            reached_stable = 1;
+        last_state = s;
+        r = padRead(0, 0, &btn);
+        if (r != 0)
+        {
+            last_btns = btn.btns;
+            if (btn.btns != 0xFFFF)
+                saw_press = 1;
+        }
+        for (d = 4000000; d-- > 0; ) __asm__ volatile ("nop");
+    }
+    len = snprintf(buf, sizeof(buf),
+        "PAD PROBE: reached_stable=%d  saw_press=%d  last_state=%d  last_btns=%04x\n",
+        reached_stable, saw_press, last_state, last_btns);
+
+    fd = fileXioOpen(logpath, 0x0602);   // FIO_O_WRONLY | FIO_O_CREAT | FIO_O_TRUNC
+    if (fd >= 0)
+    {
+        fileXioWrite(fd, buf, len);
+        fileXioClose(fd);
+    }
+    printf("%s", buf);
+    printf("=== probe wrote -> %s ; halted (reset the PS2) ===\n", logpath);
+    for (;;) { }
 }
 
 // Simple buttons -> Doom keys (L1/R1 and the sticks are handled separately).
@@ -159,6 +212,17 @@ void PS2Pad_Poll(void (*emit)(int pressed, unsigned char doomkey))
 
     if (padRead(0, 0, &btn) == 0)
         return;
+
+    // A digital / stick-less pad (e.g. an original PS1 controller) reports its
+    // analog-axis bytes as 0, which axis()/PS2_JoyTurn read as "stick slammed left"
+    // (centre is 0x80) -> the view spins left forever. If the pad isn't an analog
+    // type, force the axes to centre so they contribute nothing; the D-pad (mapped
+    // to the arrow keys below) drives movement/turning instead.
+    {
+        int padtype = padInfoMode(0, 0, PAD_MODECURID, 0);
+        if (padtype != PAD_TYPE_DUALSHOCK && padtype != PAD_TYPE_ANALOG)
+            btn.ljoy_h = btn.ljoy_v = btn.rjoy_h = btn.rjoy_v = 0x80;
+    }
 
     // Pick which stick turns vs moves (southpaw swaps them).
     if (ps2_southpaw)

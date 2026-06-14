@@ -21,9 +21,10 @@
 #include <malloc.h>
 #include <stdbool.h>
 
-#include <SDL.h>            // libSDL2main entry + SDL_GetTicks/SDL_Delay (+ input later)
+#include <SDL.h>            // libSDL2main entry + SDL_GetTicks/SDL_Delay
 #include <gsKit.h>
 #include <dmaKit.h>
+#include <ps2_joystick_driver.h>   // init_joystick_driver -- THIS build's main must bring up the pad
 
 // Doom's palette, exposed by i_video.c under CMAP256 (b/g/r/a bitfields).
 struct color { uint32_t b:8, g:8, r:8, a:8; };
@@ -311,6 +312,13 @@ int main(int argc, char **argv)
   printf("===========================================================\n");
 
   PS2Audio_Init();
+
+  // Bring up the controller (sio2man + mtap + padman + padInit). This gsKit ELF has
+  // its OWN main (separate from doomgeneric_ps2.c), so it must do this itself, and
+  // input goes through PS2Pad_Poll (libpad), not SDL. In this embedded build it's
+  // the ONLY thing we load on the IOP -- no usbd -- so there is nothing for the pad
+  // to fight: the whole point of this rudimentary build.
+  init_joystick_driver(true);
 
   doomgeneric_Create(argc, argv);
 

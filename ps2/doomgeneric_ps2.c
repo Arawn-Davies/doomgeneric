@@ -8,7 +8,17 @@
 #include <unistd.h>
 
 #include <stdbool.h>
+#include <string.h>      // strncmp
 #include <SDL.h>
+
+// IOP driver bring-up -- we take control of the ORDER (pad BEFORE USB) so libpad
+// doesn't wedge at PAD_STATE_EXECCMD; see PS2_BringUpDrivers + ps2_drivers_stub.c.
+#include <ps2_joystick_driver.h>
+#include <ps2_filesystem_driver.h>   // init_* sub-drivers (+ transitively the others)
+// fileXio dir open/close for the post-USB device-ready wait (the newlib port poisons
+// the fileXio header, so declare the two calls we need -- same as ps2_iwad.c).
+extern int fileXioDopen(const char *name);
+extern int fileXioDclose(int fd);
 
 SDL_Window* window = NULL;
 SDL_Renderer* renderer = NULL;
@@ -293,6 +303,52 @@ void DG_SetWindowTitle(const char * title)
   }
 }
 
+// Bring the IOP drivers up in the order wLaunchELF/OPL use: the PAD STACK FIRST
+// (sio2man/padman), THEN the USB BDM stack. If USB loads first, libpad's config
+// handshake wedges at PAD_STATE_EXECCMD and never reaches STABLE -> dead pad. The
+// ps2dev SDL2 shim loads USB before our main, so ps2_drivers_stub.c no-ops the
+// shim's init_ps2_filesystem_driver/waitUntilDeviceIsReady and we do it here
+// instead. This mirrors init_ps2_filesystem_driver's set with the pad inserted
+// first (init_sio2man_driver is idempotent, so memcard's later call is a no-op).
+// Call AFTER PS2Audio_Init (which does SifLoadFileInit/SifInitIopHeap that the
+// module loads below need).
+static void PS2_BringUpDrivers(int argc, char **argv)
+{
+    init_joystick_driver(true);     // PAD FIRST (always): sio2man + mtap + padman + padInit
+
+#ifdef EMBED_WAD
+    // Rudimentary embedded-WAD build: the WAD is served from memory (w_file_mem.c),
+    // so we need NOTHING else -- no usbd, no bdm, no cdfs, no mc. Bringing up no USB
+    // stack means there is nothing for the pad to fight, which is the whole point of
+    // this build: prove the controller works in isolation.
+    (void) argc; (void) argv;
+#else
+    init_poweroff_driver();
+    init_fileXio_driver();
+    init_memcard_driver(true);      // its init_sio2man_driver() is a no-op now (sio2man up)
+    init_usb_driver(true);          // USB BDM stack -- AFTER the pad: the fix
+    init_mx4sio_driver(false);
+    init_cdfs_driver();
+    init_dev9_driver();             // our no-op stub (skips absent-NIC timeout)
+    init_hdd_driver(false, true);   // only_if_booted_from_hdd => self-skips on USB/disc
+
+    // We stubbed the shim's waitUntilDeviceIsReady, so do our own bounded wait for
+    // the USB device to mount, so the WAD scan doesn't race enumeration. USB boots
+    // only (a disc/host boot has no mass: device to wait on).
+    if (argc > 0 && argv[0] != NULL && !strncmp(argv[0], "mass", 4))
+    {
+        int i;
+        for (i = 0; i < 50; i++)
+        {
+            int dd = fileXioDopen("mass0:/");
+            if (dd < 0) dd = fileXioDopen("mass:/");
+            if (dd >= 0) { fileXioDclose(dd); break; }
+            { volatile int n = 5000000; while (n-- > 0) __asm__ volatile ("nop"); }
+        }
+    }
+#endif
+}
+
 int main(int argc, char **argv)
 {
     // On-screen boot console + unbuffered stdout so each boot message draws
@@ -305,12 +361,20 @@ int main(int argc, char **argv)
     printf("\n");
     printf("===========================================================\n");
     printf(" doomgeneric for PlayStation 2  (SDL2 backend)\n");
-    printf(" IWAD embedded in executable - no filesystem\n");
+#ifdef EMBED_WAD
+    printf(" IWAD embedded in executable\n");
+#else
+    printf(" WADs from USB (mass0:/ps2oom/wads), disc (cdfs), or host\n");
+#endif
     printf("===========================================================\n");
 
     // Bring up the SPU2 (load audsrv.irx + audsrv_init) before Doom's
     // S_Init opens the SDL audio device.
     PS2Audio_Init();
+
+    // Bring the rest of the IOP drivers up ourselves, PAD BEFORE USB (the fix for
+    // the EXECCMD pad wedge). Must follow PS2Audio_Init (SifLoadFileInit etc.).
+    PS2_BringUpDrivers(argc, argv);
 
     doomgeneric_Create(argc, argv);
 

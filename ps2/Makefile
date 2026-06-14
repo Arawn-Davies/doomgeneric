@@ -41,10 +41,25 @@ RESY = 400
 EE_CFLAGS_HIRES = -DHIRES -DHAVE_TITLE_IMAGE
 endif
 
+# Doom zone heap (MiB). The OPL MIDI loader (midifile.c) parses songs on the
+# *system* malloc heap -- i.e. whatever EE RAM is left after the zone + the ELF.
+# Too big a zone starves it and larger songs fail to realloc (-> NULL deref ->
+# TLB-miss crash on real HW). So the zone is sized per-build:
+#   * embedded-WAD ELF (~4 MB bigger, baked-in shareware): smaller zone (small
+#     levels anyway), leaving the loader room.
+#   * external-WAD builds (smaller ELF, but big levels -- Doom 2, PWADs like
+#     SIGIL): bigger zone, and the smaller ELF still leaves the loader heap.
+# Both keep a few MB of malloc heap; MIN_RAM is AutoAllocMemory's fallback floor.
+ifdef EMBED_WAD
+DG_ZONE_MB = 12
+else
+DG_ZONE_MB = 16
+endif
+
 EE_CFLAGS = -D_EE -O2 -G0 -Wall -DHAVE_CONFIG_H -D__PS2__ -DFEATURE_SOUND \
             -DDOOMGENERIC_RESX=$(RESX) -DDOOMGENERIC_RESY=$(RESY) \
             -DSCREENWIDTH=$(RESX) -DSCREENHEIGHT=$(RESY) $(EE_CFLAGS_HIRES) \
-            -DDEFAULT_RAM=18 -DMIN_RAM=8 \
+            -DDEFAULT_RAM=$(DG_ZONE_MB) -DMIN_RAM=8 \
             -fdata-sections -ffunction-sections
 
 # Copyright: by default NO WAD is embedded, so the ELF contains no game data
@@ -54,6 +69,13 @@ EE_CFLAGS = -D_EE -O2 -G0 -Wall -DHAVE_CONFIG_H -D__PS2__ -DFEATURE_SOUND \
 # convenience. Never embed a commercial WAD you intend to distribute.
 ifdef EMBED_WAD
 EE_CFLAGS += -DEMBED_WAD
+endif
+
+# BOOT_STRAIGHT=1 (with EMBED_WAD): a single-file ELF that skips the setup menu
+# and boots straight into the embedded WAD -- the known-good DOOMGS.ELF path,
+# for quick FMCB/USB testing. Running the menu + gsKit in one ELF garbles the GS.
+ifdef BOOT_STRAIGHT
+EE_CFLAGS += -DBOOT_STRAIGHT
 endif
 
 # GSKIT_VIDEO=1 swaps the SDL2 video backend (doomgeneric_ps2.c) for the native
@@ -101,7 +123,7 @@ EE_LDFLAGS = -L$(PS2SDK)/ee/lib -L$(GSKIT)/lib -L$(PS2SDK)/ports/lib \
 EE_LIBS = -lSDL2main -lSDL2 -lps2_drivers \
           -lgskit -ldmakit $(GL_LIBS) \
           -ldebug -laudsrv -lpoweroff \
-          -lfileXio -lpatches -lpad -lmc -lkbd \
+          -lelf-loader2 -lfileXio -lpatches -lpad -lmc -lkbd \
           -lm -lc -lkernel
 
 # Overridable so each build config (SDL2 / gsKit-HIRES / GL) can keep its OWN
@@ -130,7 +152,7 @@ CORE_OBJS = dummy.o am_map.o doomdef.o doomstat.o dstrings.o d_event.o d_items.o
 # Both music engines are linked in -- the startup menu picks one at runtime
 # (PS2_MusicEngine(); see ps2_iwad.c + i_sound.c). OPL/FM = i_oplmusic + opl +
 # dbopl; SPU2 synth = i_spu2music + spusynth_irx (the embedded IOP module).
-PS2_OBJS = $(VIDEO_OBJ) w_file_ps2.o w_file_cdfs.o ps2_iwad.o ps2_cdfs.o \
+PS2_OBJS = $(VIDEO_OBJ) w_file_ps2.o w_file_cdfs.o w_file_usb.o ps2_iwad.o ps2_cdfs.o \
 	ps2_bootscr.o ps2_audio.o ps2_audio_driver.o ps2_drivers_stub.o ps2_menu.o ps2_pad.o ps2_mcsave.o \
 	i_audsrvsound.o audsrv_irx.o libsd_irx.o poweroff_irx.o \
 	i_oplmusic.o midifile.o opl.o dbopl.o opl_queue.o opl_ps2.o \

@@ -244,9 +244,17 @@ overrides any in-game cap — the only clock is the (sped-up) EE timer.
 
 **The ~28 s boot stall** was *not* libdebug, cdfs, or audio — it was
 libps2_drivers' `waitUntilDeviceIsReady` (called by SDL2main's `main` before
-ours), which spun a long timeout on an absent device. `ps2_drivers_stub.c`
-overrides it (and stubs unused USB/dev9 drivers). Boot now reaches audio in
-~3.8 s.
+ours), which spun a long timeout on an absent device. It's overridden in
+`ps2_drivers_stub.c`.
+
+**Controller dead on a USB boot** was a module *load-order* bug: `libpad` wedges
+at `PAD_STATE_EXECCMD` if the USB BDM stack is loaded before `sio2man`/`padman`,
+and the ps2dev SDL2 shim brings USB up (via `init_ps2_filesystem_driver`) *before*
+our `main`. wLaunchELF and OPL both load the pad modules *first*. So
+`ps2_drivers_stub.c` also no-ops the shim's `init_ps2_filesystem_driver` (and
+`waitUntilDeviceIsReady`), and `PS2_BringUpDrivers` (`doomgeneric_ps2.c`) brings
+every driver up itself **pad-first, then USB** — the proven order. Boot reaches
+audio in ~3.8 s.
 
 **Limit-removing:** SIGIL and other detailed/large maps overflow Doom's vanilla
 static limits (`I_Error` → exit, seen as a `# Restart.` reboot). The arrays are
@@ -267,7 +275,7 @@ dynamic limit-removing — Boom/MBF map features remain unsupported.
 | `ps2_mcsave.c` | **memory-card persistence** of the controller settings (failsafe, bounded libmc) |
 | `ps2_bootscr.c` | GS text console for the boot log + on-screen `I_Error` screen + EE→SIO serial log + fps counter |
 | `title_image.raw` | embedded 640×400 hi-res title image (public-domain; `bin2c` → `title_image.c`) |
-| `ps2_drivers_stub.c` | **boot fix**: override `waitUntilDeviceIsReady`; stub unused USB/dev9 |
+| `ps2_drivers_stub.c` | **boot + pad fix**: no-op the SDL2 shim's `init_ps2_filesystem_driver`/`waitUntilDeviceIsReady` so `PS2_BringUpDrivers` loads drivers pad-before-USB; stub unused dev9 |
 | `ps2_audio.c` | enables loading IRX from EE buffers before audio opens |
 | `ps2_audio_driver.c` | our `init_audio_driver`: loads libsd.irx + audsrv.irx, `audsrv_init()` |
 | `i_audsrvsound.c` | SFX backend (EE mixer thread → audsrv) + `PS2Sound_Stop()` |
