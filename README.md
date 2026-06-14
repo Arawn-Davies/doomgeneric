@@ -53,14 +53,18 @@ id Software's original DOOM source).
 - **Limit-removing** — the vanilla static renderer limits (visplanes, drawsegs,
   vissprites, …) are raised, so detailed / large maps such as **SIGIL** play
   instead of erroring out. (Boom/MBF map features are still unsupported.)
-- **Dual-analog controller** (libpad): modern layout, proportional analog turn,
-  plus an **in-game Controller options page** (turn sensitivity, always-run,
-  deadzone, invert look, swap sticks) — **saved to the memory card** (failsafe:
-  no card → settings just stay for the session).
-- **Flexible WAD loading** — IWAD + optional PWAD from a cdfs disc/ISO, from
-  hostfs (PCSX2 `host:`), or the embedded shareware DOOM1.WAD; read on demand.
-- **60 fps frame cap**; **quit-to-DOS returns to the setup menu** instead of the
-  PS2 BIOS; fatal errors are shown on-screen rather than rebooting silently.
+- **Controller** (libpad): modern dual-analog layout with proportional analog
+  turn — and **digital / stick-less pads work too** (an original D-pad PS1 pad
+  drives move/turn via the D-pad; its empty analog axes are centred so the view
+  doesn't spin). An **in-game Controller options page** (turn sensitivity,
+  always-run, deadzone, invert look, swap sticks) is **saved to the memory card**
+  (failsafe: no card → settings just stay for the session).
+- **Flexible WAD loading** — IWAD + optional PWAD from a cdfs disc/ISO, a USB
+  stick (`mass:`, via a `fileXio` reader for FreeMcBoot/wLaunchELF boots), hostfs
+  (PCSX2 `host:`), or the embedded shareware DOOM1.WAD; read on demand.
+- **60 fps frame cap**; **quit-to-DOS** returns to the setup menu (launcher
+  builds) or the **PS2 system menu — `rom0:OSDSYS`** (the straight-boot embedded
+  build) rather than the BIOS; fatal errors show on-screen, not a silent reboot.
 - **Fast boot** (~4 s to gameplay). The previous ~30 s stall was a
   libps2_drivers `waitUntilDeviceIsReady` device-probe timeout, now overridden.
 
@@ -68,7 +72,9 @@ id Software's original DOOM source).
 
 The disc boots to a setup menu; the **Render** row hands off to the matching
 renderer ELF, and **Quit to DOS** comes back to the menu (never the BIOS).
-Controller settings round-trip through the memory card.
+Controller settings round-trip through the memory card. (A single-ELF
+straight-boot build — embedded shareware WAD, no menu — is also built for
+USB / FreeMcBoot; its **Quit to DOS** goes to `rom0:OSDSYS`.)
 
 ```mermaid
 flowchart LR

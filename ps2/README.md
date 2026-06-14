@@ -153,13 +153,16 @@ EE `printf` is routed to the **SIO serial console** (`ps2_bootscr.c` `_write` �
 remotely (the boot console only shows on the GS screen). `ps2_pad.c` logs button
 edges + analog direction changes through it (`PAD_LOG`). `run.sh` tails it.
 
-## Quit-to-launcher — and the SIF-RPC gotcha
+## Quit — and the SIF-RPC gotcha
 
-"Quit to DOS" returns to the setup menu instead of the PS2 BIOS: `I_Quit`'s
-`__PS2__` path `LoadExecPS2`'s **this renderer's own ELF** (a full machine
-reset), which re-shows the menu. (It used to hardcode `DOOMSDL.ELF`, which broke
-quit on a disc that doesn't carry it — e.g. the fast `gsiso` test disc — and
-dropped to the BIOS.)
+"Quit to DOS" leaves the game cleanly instead of dropping to the PS2 BIOS.
+`I_Quit`'s `__PS2__` path calls `PS2_ReturnToLauncher()`:
+- **launcher builds** `LoadExecPS2` **this renderer's own ELF** (a full machine
+  reset) so the setup menu re-shows. (It used to hardcode `DOOMSDL.ELF`, which
+  broke quit on a disc that doesn't carry it — e.g. the fast `gsiso` test disc.)
+- **straight-boot embedded builds** (`BOOT_STRAIGHT` — no setup menu to return
+  to) `LoadExecPS2 "rom0:OSDSYS"`, i.e. back to the PS2 system menu (FMCB on a
+  modded console).
 
 **The order matters and was a real bug.** Adding an in-game memory-card save to
 `I_Quit` hung the quit with looping/stuttering audio. Root cause: the
@@ -171,8 +174,9 @@ card read works only because it runs before the mixer thread starts. The fix:
 1. `PS2Sound_Stop()` cleanly parks the mixer (asks the loop to exit, waits for
    it to leave its `audsrv` call, then `audsrv_stop_audio()`) so SIF is quiet.
 2. `PS2Mc_SaveControls()` (now safe).
-3. `PS2_ReturnToLauncher()` → `LoadExecPS2` (the reset tears everything else
-   down, so Doom's normal `exit_funcs` teardown is skipped — it can deadlock too).
+3. `PS2_ReturnToLauncher()` → `LoadExecPS2` (launcher ELF or `rom0:OSDSYS`; the
+   reset tears everything else down, so Doom's normal `exit_funcs` teardown is
+   skipped — it can deadlock too).
 
 **Rule: never use SIF RPC (libmc, etc.) from the EE while the audsrv mixer
 thread is live — quiesce it first.** (The menu's renderer-switch `LoadExec` was
@@ -207,6 +211,16 @@ flowchart LR
     FM from the IWAD's GENMIDI lump into the audsrv stream.
   - **SPU2 hardware-voice synth** (`i_spu2music.c` + `iop/spusynth/`) — drives
     the chip's own ADPCM voices (see below).
+
+Both engines parse the song with the shared `midifile.c` (MUS → MIDI in memory),
+which grows its event array with `realloc` on the **system malloc heap** — the EE
+RAM left after Doom's zone + the ELF, *not* the zone. The embedded-WAD ELF is
+~4 MB larger (WAD in `.data`), so the zone is sized **per build** (`Makefile`
+`DG_ZONE_MB`: embedded 12 MiB, external-WAD 16 MiB) to leave the loader room. An
+over-sized zone starved it: larger songs (e.g. the intermission) failed to
+`realloc`, wrote through NULL, and hard-locked on real hardware with a TLB-miss
+(PCSX2 maps low RAM and hid it entirely). `ReadTrack` now NULL-checks the
+`realloc` and bails instead of faulting. See `docs/usb-pad-boot-status.md`.
 
 ### SPU2 hardware-voice synth
 
