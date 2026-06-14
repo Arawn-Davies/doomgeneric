@@ -43,6 +43,9 @@ void M_Ticker (void);
 // draws the menus directly into the screen buffer.
 void M_Drawer (void);
 
+// PS2: author credit (bottom-right of the main menu / title background).
+void M_DrawCopyright (void);
+
 // Called by D_DoomMain,
 // loads the config file.
 void M_Init (void);

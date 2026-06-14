@@ -506,6 +506,7 @@ void D_PageDrawer (void)
     {
         extern unsigned char title_image[];
         V_DrawBlock(0, 0, SCREENWIDTH, SCREENHEIGHT, (byte *) title_image);
+        M_DrawCopyright();
         return;
     }
 #endif

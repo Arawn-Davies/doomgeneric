@@ -2324,6 +2324,18 @@ static void M_DrawCenteredText(int y, const char *s)
 // Called after the view has been rendered,
 // but before it has been blitted.
 //
+//
+// M_DrawCopyright
+// PS2: author credit at the bottom-right of the main menu / title background.
+// Logical 320x200 coords (V_DrawPatch scales it 2x in hi-res); the menu font is
+// upper-case only, so it renders as "COPYRIGHT (C) 2026 ARAWN DAVIES".
+//
+void M_DrawCopyright(void)
+{
+    char *s = "Copyright (C) 2026 Arawn Davies";
+    M_WriteText(ORIGWIDTH - M_StringWidth(s) - 2, ORIGHEIGHT - 9, s);
+}
+
 void M_Drawer (void)
 {
     static short	x;
@@ -2336,6 +2348,10 @@ void M_Drawer (void)
 
     inhelpscreens = false;
     
+    // PS2: author credit, bottom-right of the main menu (over its background).
+    if (!messageToPrint && currentMenu == &MainDef)
+        M_DrawCopyright();
+
     // Horiz. & Vertically center string and print it.
     if (messageToPrint)
     {
