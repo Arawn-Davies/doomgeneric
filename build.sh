@@ -52,11 +52,22 @@ resolve_waddir() {
   printf '%s\n' "${HERE}/wads"
 }
 
+# Print an md5 line for a built artifact, right after its "X -> path" line.
+# Guarded: silently skips a missing file or a missing md5sum tool, so it never
+# turns a clean tree (no artifacts) or a minimal host into a build error.
+print_md5() {
+  local f="$1"
+  [ -f "$f" ] || return 0
+  command -v md5sum >/dev/null 2>&1 || return 0
+  echo "md5 -> $(md5sum "$f" | cut -d' ' -f1)  $(basename "$f")"
+}
+
 # Mirror the freshly built ps2/ps2oom.elf into bin/ (plain builds / presets).
 sync_elf() {
   if [ -f "${HERE}/ps2/ps2oom.elf" ]; then
     cp -f "${HERE}/ps2/ps2oom.elf" "${BIN}/ps2oom.elf"
     echo "ELF -> ${BIN}/ps2oom.elf  ($(du -h "${BIN}/ps2oom.elf" | cut -f1))"
+    print_md5 "${BIN}/ps2oom.elf"
   fi
 }
 
@@ -67,6 +78,7 @@ deploy_iso() {
   local iso="${BIN}/ps2oom.iso"
   [ -f "$iso" ] || return 0
   echo "ISO -> ${iso}  ($(du -h "$iso" | cut -f1))"
+  print_md5 "$iso"
   [ -n "${PS2OOM_DEPLOY:-}" ] || return 0
   if ! mkdir -p "${PS2OOM_DEPLOY}" 2>/dev/null; then
     echo "!! deploy: cannot create ${PS2OOM_DEPLOY} (ISO is still in bin/)" >&2
